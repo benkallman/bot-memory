@@ -17,9 +17,11 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Unit tests
         run: python -m unittest discover -s tests -v
+      - name: Concurrency stress test
+        run: python tests/stress_concurrency.py 8 20 3
       - name: Example tree passes the onboarding check
         run: |
           find examples/demo-memory -type f -exec chmod 600 {} +
           python tools/onboard_check.py examples/demo-memory
       - name: Repo has no secret-looking text
-        run: python tools/memwrite.py scan README.md docs/*.md templates/*.md templates/master/*.md
+        run: python tools/memwrite.py scan README.md CHANGES.md docs/*.md templates/*.md templates/master/*.md

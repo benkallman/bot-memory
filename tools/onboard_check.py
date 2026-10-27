@@ -6,10 +6,12 @@ Checks a memory root and exits 1 if any check fails:
   2. template - no unreplaced {{PLACEHOLDER}} text and no TEMPLATE-ONLY lines
   3. secrets  - no secret-looking values or blocklisted phrases (same rules as memwrite)
   4. access   - files marked `access: private` are not group/other readable (POSIX)
+  5. integrity - only with --verify: hash-chained log, diffs and file hashes
+                 (same as `memwrite verify`). Off by default to keep the check cheap.
 TODO markers are allowed (they are honest gaps) and are counted per file.
 Use --strict to fail on TODOs too.
 
-Usage: python3 tools/onboard_check.py [ROOT] [--strict] [--json]
+Usage: python3 tools/onboard_check.py [ROOT] [--strict] [--verify] [--json]
 """
 from __future__ import annotations
 
@@ -22,7 +24,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from memwrite import find_problems, LOG_DIR_NAME  # noqa: E402
+from memwrite import find_problems, LOG_DIR_NAME, verify  # noqa: E402
 
 REQUIRED = ["master/owner.md", "registry.md", "last-session.md", "decisions.md"]
 PLACEHOLDER_RE = re.compile(r"\{\{[^}]+\}\}")
@@ -39,7 +41,7 @@ def memory_files(root: Path):
         yield path
 
 
-def check(root: Path, strict: bool = False) -> dict:
+def check(root: Path, strict: bool = False, verify_chain: bool = False) -> dict:
     report = {"root": str(root), "errors": [], "todos": {}, "files": 0}
     for rel in REQUIRED:
         if not (root / rel).is_file():
@@ -65,6 +67,11 @@ def check(root: Path, strict: bool = False) -> dict:
             mode = stat.S_IMODE(path.stat().st_mode)
             if mode & 0o077:
                 report["errors"].append(f"access: {rel} is marked private but mode is {oct(mode)} (want 0o600)")
+    if verify_chain:
+        rep = verify(root)
+        report["errors"].extend(f"integrity: {e}" for e in rep["errors"])
+        report["integrity_warnings"] = rep["warnings"]
+        report["chain_head"] = rep["head"]
     report["ok"] = not report["errors"]
     return report
 
@@ -73,9 +80,10 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("root", nargs="?", default=os.environ.get("MEMORY_ROOT", "."))
     ap.add_argument("--strict", action="store_true")
+    ap.add_argument("--verify", action="store_true", help="also verify the hash-chained write log")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
-    rep = check(Path(a.root).expanduser().resolve(), a.strict)
+    rep = check(Path(a.root).expanduser().resolve(), a.strict, a.verify)
     if a.json:
         print(json.dumps(rep, indent=2))
     else:

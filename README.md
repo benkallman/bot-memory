@@ -80,11 +80,21 @@ python3 tools/memwrite.py append --root ~/bot-memory --file projects/website.md 
   The refusal names the rule and line, never the value.
 * Writes a unified diff to `logs/diffs/` and a JSON line to `logs/writes.jsonl`.
 * `--id` makes a write idempotent: the same id on the same file is skipped.
+  The check runs inside the root-wide write lock (`logs/.write.lock`), so it
+  holds under many concurrent writers.
+* Each log line is hash-chained to the one before it (`memwrite verify`
+  detects edited, deleted, inserted or reordered log lines, edited diffs, and
+  memory files changed outside the tool).
+* Optional write ACLs in `ROOT/.acl.json`: which agent may append to which
+  files. `master/*` is owner-only by default and needs a one-time
+  `memwrite approve` token from an approver. Text that tries to forge block
+  metadata (`<!-- by: ... -->`, fake `### date | heading` lines) is refused.
 * `--dry-run` shows the block without writing.
 
-Other commands: `scan FILE...` (check files or `-` for stdin) and
+Other commands: `scan FILE...` (check files or `-` for stdin),
 `hash "phrase"` (prints a `sha256:` line for `.blocklist`, so you can block a
-name without writing the name down).
+name without writing the name down), `approve`, `verify` and `anchor`
+(see [docs/integrity.md](docs/integrity.md)).
 
 The checks are pattern-based. They catch common mistakes, not a determined
 leak. Keep secrets in a real secret manager.
@@ -98,10 +108,16 @@ private files that are group or world readable. File modes only separate
 different OS users; if every bot runs as the same user, the rule in the bot
 file is what keeps it out. See [docs/shared-bots.md](docs/shared-bots.md).
 
+The same limit applies to the ACLs and the hash chain: any process running as
+the same OS user can edit files directly, bypassing the tool. They stop
+mistakes and instruction-following bots and make tampering visible; they are
+not isolation. See [docs/integrity.md](docs/integrity.md).
+
 ## Tests
 
 ```bash
 python3 -m unittest discover -s tests -v
+python3 tests/stress_concurrency.py 22 50 3   # 22 writers, 1100 appends, 66 same-id attempts
 ```
 
 ## License
